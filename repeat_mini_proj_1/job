@@ -1,0 +1,75 @@
+#!/bin/bash
+# Debug queue:
+# PBS -l select=1:ncpus=8:mem=24gb:ompthreads=8
+# PBS -l walltime=00:15:00
+# PBS -J 1-16
+
+# Throughput queue:
+#PBS -l select=1:ncpus=8:mem=24gb:ompthreads=8
+#PBS -l walltime=02:00:0
+#PBS -J 1-16
+
+# GPU queue: TODO: look into why this randomly breaks with the io device stuff -> was to do with cluster write permissions
+# PBS -lselect=1:ncpus=4:mem=24gb:ngpus=1:gpu_type=RTX6000
+# PBS -l walltime=00:30:0
+# PBS -J 1-16
+
+inter_threads=4
+intra_threads=4
+
+echo "Started"
+date
+set -x
+job="${PBS_JOBID%[*}"
+
+# Debug single:
+# exp_vals=(mse-bert-shallow_wide-no)
+# Debug array:
+# exp_vals=(mse-tfidf-shallow_wide-{'l1','l2','do'})
+# Quick CPU permute:
+# exp_vals=(mse-tfidf-{'core','shallow_wide','deep_narrow','deep_wide'}-{'l1','l2','do','no'})
+# Medium CPU permute:
+exp_vals=(mse-learned-{'core','shallow_wide','deep_narrow','deep_wide'}-{'l1','l2','do','no'})
+# Long GPU permute:
+# exp_vals=(mse-bert-{'core','shallow_wide','deep_narrow','deep_wide'}-{'l1','l2','do','no'})
+
+echo "Array idx $PBS_ARRAY_INDEX"
+if [[ ! -z "$PBS_ARRAY_INDEX" ]]; then
+    no_exps="${#exp_vals[@]}"
+    array_idx=$(($PBS_ARRAY_INDEX - 1))
+
+    # For repeating experiments we want to cycle through our experiment values
+    # Important fact here is the same array index will give you the same experimental value
+    # so if we repeat an experiment multiple times it will always go to the same folder
+    exp_idx=$(($array_idx % $no_exps))
+    exp_val=${exp_vals[$exp_idx]}
+
+    exp_counter=$(($array_idx / $no_exps))
+    save_dir="$exp_val/$exp_counter/"
+    echo "Save dir is $save_dir"
+    echo "Exp val $exp_val"
+    echo "Exp counter $exp_counter"
+else
+    exp_val=${exp_vals[0]}
+    echo "Not in array job, exp val $exp_val"
+fi
+
+input_data_path="$HOME/RNN_for_movie_gross_prediction/complete10000_films_and_synopsis.pickle"
+script_dir="$HOME/RNN_for_movie_gross_prediction/jobs/mini_project_exps/"
+output_dir="$EPHEMERAL/mini_project_exps/$PBS_JOBNAME/$save_dir"
+
+mkdir -p $output_dir
+# Just so we can remember which job made this
+touch "$output_dir/$job-$PBS_ARRAY_INDEX.txt"
+cd $script_dir
+
+module load anaconda3/personal
+module load cuda
+source activate tf2-w-text
+# To fix issues with downloading the model
+export TFHUB_CACHE_DIR=$EPHEMERAL/.cache/tfhub_modules
+mkdir -p $TFHUB_CACHE_DIR
+python experiment.py "$output_dir" "$input_data_path" "$exp_val" "$intra_threads" "$inter_threads" &>"$output_dir/stdout"
+
+echo "Done"
+date
