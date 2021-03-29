@@ -1,0 +1,352 @@
+---
+title: "structured_analysis"
+author: "al"
+date: "22/03/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+I should feel bad for using such awful variable names...
+
+## Prepare for analysis
+
+```{r}
+rm(list=ls())
+graphics.off()
+gc()
+setwd("~/projects/car_data_analysis")
+library(ggplot2)
+library(dplyr)
+library(plotly)
+set.seed(123)
+
+```
+
+## Load in data, basic transformations and missingness checks
+```{r}
+a <- read.csv('structured_wout_guid.csv', stringsAsFactors=T)
+a <- unique(a)
+names(a)[2] <- "age"
+a["age"] <- 2021-a["age"]
+
+summary(is.na(a))
+```
+
+
+## Train/test splits and other investigative transformations
+```{r}
+dt = sort(sample(nrow(a), nrow(a)*.7))
+train<-a[dt,]
+test<-a[-dt,]
+
+str(train)
+str(test)
+
+enforce_make_consistency <- function(){
+  train_makes <- table(train$make)
+  test_makes <- table(test$make)
+
+  
+  # Remove from train set if it has <2 obvs of make (can't generate a line?)
+  row_mask <- grepl(paste(names(train_makes[train_makes<2]), collapse='|'),train$make)
+  train <- train[!row_mask,]
+  print("Train row removals")
+  print(summary(row_mask))
+  
+  # Remove from test set if make didn't appear in test set
+  row_mask <- grepl(paste(names(train_makes[train_makes==0]), collapse='|'),test$make)
+  test <- test[!row_mask,]
+  print("Test row removals")
+  print(summary(row_mask))
+  
+  return(list(train,test))
+}
+
+d <- enforce_make_consistency()
+train <- d[[1]]
+test <- d[[2]]
+rm(d)
+
+str(train)
+str(test)
+
+freq_by_make <- as.data.frame(table(train$make))
+names(freq_by_make)[1] <- "make"
+price_by_make <- a %>% 
+  group_by(make) %>% 
+  summarise(m=mean(price))
+overall_mean <- mean(train$price)
+```
+
+
+## Look at 1D relationships
+```{r}
+plot(price~mileage, data=a)
+plot(price~engine.size, data=a)
+plot(price~owners, data=a) # Boxplots better
+plot(price~age, data=a)
+
+g <- ggplot(data=freq_by_make, aes(x=make, col="red")) +
+  scale_x_discrete(guide = guide_axis(angle = 90)) +
+  geom_col(data=price_by_make, aes(y=m, col="blue", alpha=0.4)) +
+  geom_hline(yintercept = overall_mean) +
+  ylab("mean price") +
+  geom_col(data=freq_by_make, aes(y=Freq*100, alpha=0.4)) +
+  scale_y_continuous(sec.axis=sec_axis(trans=~./100, name="freq") ) +
+  scale_color_discrete(labels=c("price","freq"))
+g
+# Smarter way to check for freq vs mean price of make
+```
+
+## Fit models and compare via cross-validation
+
+### Helper functions
+```{r}
+evaluate <- function(model, evaluation_data=test){
+  return(
+    list(mean_residual=mean(evaluation_data$price - predict(model, evaluation_data)),
+         mean_abs=mean(abs(evaluation_data$price - predict(model, evaluation_data))),
+         mean_sq=mean((evaluation_data$price - predict(model, evaluation_data))^2)
+         )
+  )
+}
+
+confusion_plot <- function(model, d){
+  return(
+    ggplot(data=d) +
+      geom_point(aes(
+              x=price, y=predict(model,d), 
+              text=split(d[colnames(d) != "price" ], seq(nrow(d[colnames(d) != "price" ])))
+                )
+             )
+  )
+}
+
+"%notin%" <- function(x, table) match(x, table, nomatch = 0) == 0
+```
+
+
+### Mileage and outlier removal
+```{r}
+mileage0 <- lm(price~mileage, data=train)
+plot(mileage0, ask=F)
+p0 <- confusion_plot(mileage0, train)
+ggplotly(p0, tooltip="text")
+# Plots show subtle signs of heteroskedasticity (high values have more variance)
+# TODO: fit with a varying assumption on the variance
+# Use plots to identify outliers
+outliers <- c("98", "2887", "583", "750", "763", "2297", "19", "1193")
+train <- subset(train, rownames(train) %notin% outliers)
+d <- enforce_make_consistency()
+train <- d[[1]]
+test <- d[[2]]
+rm(d)
+
+mileage1 <- lm(price~mileage, data=train)
+plot(mileage1, ask=F)
+cp0 <- confusion_plot(mileage1, train)
+ggplotly(cp0, tooltip="text")
+anova(mileage0)
+
+# Verify removing outliers helped in at least the mileage fit
+evaluate(mileage0)
+evaluate(mileage1)
+# Helps a little
+```
+
+### Scaling
+```{r}
+# Verify that scaling the inputs doesnt change the OLS fit of a linear model
+# (mathematically should not, therefore any change is truncation error)
+my.scale <- function(df, col){
+  q <- scale(df[col], center=T)
+  scaled <- df
+  scaled[col] <- as.vector(q)
+  return(scaled)
+}
+train_scaled <- my.scale(train, "mileage")
+test_scaled <- my.scale(test, "mileage")
+
+
+scaled.mileage0 <- lm(price~mileage, data=train_scaled)
+plot(scaled.mileage0, ask=F)
+sp0 <- confusion_plot(scaled.mileage0, train_scaled)
+ggplotly(sp0, tooltip="text")
+
+evaluate(scaled.mileage0, evaluation_data = test_scaled)
+evaluate(mileage1)
+# Performs only marginally worse - not sure we need to scale input right now
+# anyway, could be more interesting/relevant when in context of training
+# dynamics of a gradient descent method and how the resolution of the scale
+# affects training due to practicalities of truncation error
+```
+
+### Make
+```{r}
+make1 <- lm(price~make, data=train)
+plot(make1, ask=F)
+# Intuition: High dimensionality means there is more likely to be outliers (?)
+# Clearly heteroskedastic with high variance with large fits
+# Could be due to low quantity of estimates in the lower price ranges
+
+p1 <- confusion_plot(make1, train)
+ggplotly(p1, tooltip="text")
+
+# Unclear what is benefit of anova here in context of prediction instead of
+# interpretation(?)
+anova(make1)
+
+# Check which on it's own has better predictive power
+evaluate(make1)
+evaluate(mileage1)
+# Mileage is the winner
+```
+
+### Make as mean
+```{r}
+# What if we replace make with average price of car make:
+# For a simple additive fit we expect no change
+get.mean.make.price <- function(row){
+  return(
+    # 6th col of our dataframe is make
+    # We want to get the 2nd col from price_by_make which is the mean price
+    as.numeric(price_by_make[ price_by_make$make == row[6], ][2])
+  )
+}
+
+adapt_make <- function(df){
+  adapted_df <- df
+  adapted_df["make"] <- apply(df,1,get.mean.make.price)
+  return(adapted_df)
+}
+
+adapted_a <- adapt_make(a)
+# Another random plot that is also indicative that more expensive cars 
+# have a greater variance
+plot(price~make, data=adapted_a)
+
+adapted_train <- adapt_make(train)
+adapted_test <- adapt_make(test)
+
+adapted.make1 <- lm(price~make, data=adapted_train)
+# TODO: Understand why residuals vs leverage plot changes
+# TODO: Understand why the confusion pots also changed :thinking_face:
+# Something to do with combining effects of cars that are similarly priced?
+plot(adapted.make1, ask=F)
+ap1 <- confusion_plot(adapted.make1, adapted_train)
+ggplotly(ap1, tooltip="text")
+anova(adapted.make1)
+
+# Adapting seems to marginally improve predictive performance, not sure why
+evaluate(adapted.make1, evaluation_data=adapted_test)
+evaluate(make1)
+```
+
+### Make and mileage
+```{r}
+make.dot.mileage1 <- lm(price~make*mileage, data=train)
+plot(make.dot.mileage1, ask=F)
+outliers <- c("505", "606", "1234")
+# Not doing anything with outliers yet
+# Problematic leverages
+# Intuition is that joint distributions have a low occupancy
+
+p2 <- confusion_plot(make.dot.mileage1,train)
+ggplotly(p2, tooltip="text")
+
+make.add.mileage1 <- lm(price~make+mileage, data=train)
+plot(make.add.mileage1, ask=F)
+# Scale location seems a bit curvilinear and starting to clearly suffer
+# from a constraint on mapping to R+
+bp2 <- confusion_plot(make.add.mileage1,train)
+ggplotly(bp2, tooltip="text")
+
+
+# Don't need to worry about weird occupancy and rank issues from above as 
+# add is outperforming the dot
+evaluate(make.add.mileage1)
+evaluate(make.dot.mileage1)
+```
+
+### Make as mean and mileage
+```{r}
+
+make.as.mean.dot.mileage <- lm(price~make*mileage, data=adapted_train)
+plot(make.as.mean.dot.mileage, ask=F)
+# No significant improvement apart from nicer leverage plot
+ap2 <- confusion_plot(make.as.mean.dot.mileage ,adapted_train)
+ggplotly(ap2, tooltip="text")
+
+make.as.mean.add.mileage <- lm(price~make+mileage, data=adapted_train)
+plot(make.as.mean.add.mileage, ask=F)
+bap2 <- confusion_plot(make.as.mean.add.mileage,adapted_train)
+ggplotly(bap2, tooltip="text")
+
+evaluate(make.dot.mileage1)
+# This model interestingly performs the best :thinking_face:
+# TODO: Ponder on the maths of changing factor into a subgroup mean
+# Clearly reduces dimensionality/something to do with occupancy somehow
+evaluate(make.as.mean.dot.mileage, evaluation_data = adapted_test)
+
+# Additively though it seems to outperform with the factors
+evaluate(make.add.mileage1)
+evaluate(make.as.mean.add.mileage, evaluation_data = adapted_test)
+```
+
+### Make, age and mileage
+```{r}
+make.add.age.add.mileage <- lm(price~make+age+mileage, data=train)
+# Introduction of more curvilinear response of residual on fitted:
+plot(make.add.age.add.mileage, ask=F)
+
+# Best model yet!
+evaluate(make.add.age.add.mileage)
+evaluate(make.add.mileage1)
+```
+
+### Do it all additively
+```{r}
+# Initially we can't include owners as it is missing data
+all.but.owners <- lm(price~make+age+mileage+engine.size, data=train)
+evaluate(all.but.owners)
+ggplotly(confusion_plot(all.but.owners,train))
+
+# Impute owners with average and try with everything
+with.owners <- train[!is.na(train$owners),]
+without.owners <- train[is.na(train$owners),]
+mean_owner <- mean(with.owners$owners)
+without.owners$owners <- mean_owner
+imputed.mean.owners.train <- rbind(with.owners, without.owners)
+
+with.owners <- test[!is.na(test$owners),]
+without.owners <- test[is.na(test$owners),]
+mean_owner <- mean(with.owners$owners)
+without.owners$owners <- mean_owner
+imputed.mean.owners.test <- rbind(with.owners, without.owners)
+
+all.mean.owners <- lm(price~., data=imputed.mean.owners.train)
+# Not a significant improvement at all
+evaluate(all.mean.owners, evaluation_data = imputed.mean.owners.test)
+
+# TODO: below
+# Impute owners with sub-group average first and global average second
+# then try with everything
+```
+
+
+### Investigating PCA
+```{r}
+train_no_na <- a[c("mileage", "age", "engine.size", "owners")] %>% 
+  filter(across(everything(),
+                ~ !is.na(.)))
+# Let's standardize our components so comparison is valid
+# Misunderstood PCA for what is and isnt relevant to the fit
+means <- apply(train_no_na,2,mean)
+stds <- apply(train_no_na,2,sd)
+stnn <- scale(train_no_na)
+
+pca <- prcomp(stnn)
+biplot(pca)
+# Suggests owners about as useful as age?
+```
