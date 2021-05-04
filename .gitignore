@@ -1,1 +1,12 @@
-venv/*
+venv
+.ipynb_checkpoints
+logs
+
+*.csv
+*.jpeg
+*.pickle
+*.png
+*.html
+*.Rhistory
+*.RData
+*.txt
