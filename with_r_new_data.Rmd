@@ -1,13 +1,11 @@
 ---
-title: "structured_analysis"
+title: "better_data"
 author: "al"
-date: "22/03/2021"
+date: "06/04/2021"
 output: html_document
 editor_options: 
   chunk_output_type: console
 ---
-
-I should feel bad for using such awful variable names...
 
 ## Prepare for analysis
 
@@ -25,12 +23,15 @@ set.seed(123)
 
 ## Load in data, basic transformations and missingness checks
 ```{r}
-a <- read.csv('structured_wout_guid.csv', stringsAsFactors=T)
+a <- read.csv('newly_scraped.csv', stringsAsFactors=T)
 a <- unique(a)
 names(a)[2] <- "age"
 a["age"] <- 2021-a["age"]
 
 summary(is.na(a))
+a <- a[!is.na(a$mileage),]
+a <- a[!is.na(a$age),]
+a <- a[!is.na(a$engine.size),]
 ```
 
 
@@ -57,7 +58,7 @@ enforce_make_consistency <- function(tr=train, te=test, print_removals=T){
   }
   
   
-  # Remove from test set if make didn't appear in test set
+  # Remove from test set if make didn't appear in train set
   row_mask <- grepl(paste(names(train_makes[train_makes==0]), collapse='|'),te$make)
   te <- te[!row_mask,]
   if(print_removals){
@@ -88,6 +89,7 @@ overall_mean <- mean(train$price)
 
 ## Look at 1D relationships
 ```{r}
+# locater
 plot(price~mileage, data=a)
 plot(price~engine.size, data=a)
 na.owners.as.neg <- a
@@ -100,7 +102,7 @@ g <- ggplot(data=freq_by_make, aes(x=make, col="red")) +
   geom_col(data=price_by_make, aes(y=m, col="blue", alpha=0.4)) +
   geom_hline(yintercept = overall_mean) +
   ylab("mean price") +
-  geom_col(data=freq_by_make, aes(y=Freq*100, alpha=0.4)) +
+  geom_col(data=freq_by_make, aes(y=Freq*10, alpha=0.4)) +
   scale_y_continuous(sec.axis=sec_axis(trans=~./100, name="freq") ) +
   scale_color_discrete(labels=c("price","freq"))
 g
@@ -111,11 +113,11 @@ g
 
 ### Helper functions
 ```{r}
-evaluate <- function(model, evaluation_data=test, type="response"){
+evaluate <- function(model, evaluation_data=test){
   return(
-    list(mean_residual=mean(evaluation_data$price - predict(model, evaluation_data, type=type)),
-         mean_abs=mean(abs(evaluation_data$price - predict(model, evaluation_data, type=type))),
-         mean_sq=mean((evaluation_data$price - predict(model, evaluation_data, type=type))^2)
+    list(mean_residual=mean(evaluation_data$price - predict(model, evaluation_data, type="response")),
+         mean_abs=mean(abs(evaluation_data$price - predict(model, evaluation_data, type="response"))),
+         mean_sq=mean((evaluation_data$price - predict(model, evaluation_data, type="response"))^2)
          )
   )
 }
@@ -128,11 +130,11 @@ extract_covariates <- function(d, predictor="price") {
     )
 }
 
-confusion_plot <- function(model, d, type="response"){
+confusion_plot <- function(model, d){
   return(
     ggplot(data=d) +
       geom_point(aes(
-              x=price, y=predict(model,d, type=type), 
+              x=price, y=predict(model,d, type="response"), 
               text=extract_covariates(d)
                 )
              )
@@ -153,7 +155,7 @@ ggplotly(p0, tooltip="text")
 # Plots show subtle signs of heteroskedasticity (high values have more variance)
 # TODO: fit with a varying assumption on the variance
 # Use plots to identify outliers
-outliers <- c("98", "2887", "583", "750", "763", "2297", "19", "1193")
+outliers <- c("779","10893", "7554", "5339", "1758", "5474", "1553")
 
 train <- subset(train, rownames(train) %notin% outliers)
 d <- enforce_make_consistency()
@@ -265,7 +267,7 @@ evaluate(make1)
 ```{r}
 make.dot.mileage1 <- lm(price~make*mileage, data=train)
 plot(make.dot.mileage1, ask=F)
-outliers <- c("505", "606", "1234")
+outliers <- c("5471", "3283")
 # Not doing anything with outliers yet
 # Problematic leverages
 # Intuition is that joint distributions have a low occupancy
@@ -325,6 +327,15 @@ evaluate(make.add.mileage1)
 
 ### Do it all additively and look into imputation
 ```{r}
+# Need to think about prediction intervals on response
+# - Introduce reject options
+# - Evaluate prediction intervals via bootstrapping
+# - Can use diagnostically:
+#   - Width clustering with respect space can give info on low occupancy
+# Intervals on the MSE
+# - To compare results more confidently
+# Remap price onto categories
+
 # Initially we can't include owners as it is missing data
 all.but.owners <- lm(price~make+age+mileage+engine.size, data=train)
 evaluate(all.but.owners)
@@ -350,6 +361,9 @@ evaluate(all.mean.owners, evaluation_data = imputed.mean.owners.test)
 # TODO: below
 # Impute owners with sub-group average first and global average second
 # then try with everything
+best_model<-all.mean.owners
+best_eval<-imputed.mean.owners.test
+best_train<-imputed.mean.owners.train
 ```
 
 
@@ -371,12 +385,12 @@ norm.transformed <- glm(
   family=gaussian(link="log")
   )
 
-evaluate(all.but.owners)
+to_beat <- evaluate(best_model, evaluation_data = best_eval)
 evaluate(gamma.all.but.owners.or.make)
 evaluate(poi.all.but.owners.or.make)
 evaluate(norm.transformed)
 
-confusion_plot(all.but.owners, train)
+confusion_plot(best_model, best_train)
 ggplotly(confusion_plot(poi.all.but.owners.or.make, train))
 confusion_plot(norm.transformed, train)
 ggplotly(confusion_plot(gamma.all.but.owners.or.make, train))
@@ -384,10 +398,10 @@ ggplotly(confusion_plot(gamma.all.but.owners.or.make, train))
 
 ### Remove GLM outliers
 ```{r}
+nt <- train[abs(poi.all.but.owners.or.make$residuals) < 2*mean(poi.all.but.owners.or.make$residuals)*train$price/1000,]
+outliers <- c("10911", "11119")
 
-outliers <- c("457", "1542", "129", "1439")
-
-cleaner_train <- subset(train, rownames(train) %notin% outliers)
+cleaner_train <- subset(nt, rownames(train) %notin% outliers)
 d <- enforce_make_consistency(tr=cleaner_train)
 cleaner_train <- d[[1]]
 cleaner_test <- d[[2]]
@@ -414,7 +428,6 @@ c.norm.transformed <- glm(
 # Think to look at distributions of predictions ?!
 # hists with same axes to compare
 
-evaluate(all.but.owners)
 evaluate(c.gamma.all.but.owners.or.make, evaluation_data = cleaner_test)
 evaluate(c.poi.all.but.owners.or.make, evaluation_data = cleaner_test)
 evaluate(c.norm.transformed, evaluation_data = cleaner_test)
@@ -455,7 +468,7 @@ cdists <- cooks.distance(c.poi.all.but.owners.or.make)
 hist(cdists)
 cdists[cdists > 10]
 
-outliers = c("125", "228", "1089", "1391", "1580", "1737")
+outliers = c("1944", "2198", "3351", "3784", "5387", "12514")
 leave.one.out = list()
 
 for(to_remove in seq(5)) {
@@ -471,57 +484,88 @@ for(to_remove in seq(5)) {
               data=cleaner_train, 
               family=poisson(link="log")
               )
-    evaluations <- evaluate(m, cleaner_test)
+    evaluations <- evaluate(m, evaluation_data = cleaner_test)
     missing_vars <- o[,i]
     leave.one.out[length(leave.one.out)+1] <- list(append(evaluations, list(vars=missing_vars)))
   }
 }
 
+# Get better models than best
+best_model = all.but.owners
+best_result = evaluate(best_model)
+better_models = list()
+for(result in leave.one.out){
+  if(result$mean_sq < best_result$mean_sq){
+      better_models[length(better_models) + 1] <- result
+  }
+}
 
-
-best_model = poi.all.but.owners.or.make
 
 ```
 
+### Outlier removal in best model
 
-### Do a random forest regression
 ```{r}
-library(rpart)
-library(caret)
-library(tidyverse)
-library(randomForest)
-cleanest_train <- na.omit(train)
-cleanest_test <- na.omit(test)
+plot(best_model)
+# Look at Cook's distances
+cdists <- cooks.distance(best_model)
+hist(cdists, breaks="FD")
+cutoff <- 0.2
+hist(cdists[cdists<cutoff], breaks="FD")
+cooks_outliers <- cdists[cdists > cutoff]
+outliers <- c("3351", "6783", "12514")
+outliers <- c(outliers, names(cooks_outliers))
 
-d <- enforce_make_consistency(tr=cleanest_train, te=cleanest_test, print_removals=F)
-cleanest_train <- d[[1]]
-cleanest_test <- d[[2]]
-rm(d)
-# Been dumb - not a random forest, look into this more
-rf <- randomForest(price~., data=cleanest_train)
+# Get better models than best
+best_model = all.but.owners
+best_model$call
+best_result = list(mean_sq=Inf)
+best.leave.one.out = list()
 
-# rf <- train(
-  # price ~., data = cleanest_train, method = "randomForest",
-  # trControl = trainControl("cv", number = 10),
-  # tuneLength = 10
-  # )
-# Plot the final tree model
-par(xpd = NA) # Avoid clipping the text in some device
-plot(rf$finalModel)
-text(rf$finalModel, digits = 3)
 
-evaluate(rf, evaluation_data = cleanest_test, type="response")
-confusion_plot(rf, cleanest_train, type="response")
+for(to_remove in seq(2)) {
+  o <- combn(outliers, to_remove)
+  print(length(o))
+  for(i in seq(ncol(o)) ) {
+    cleaner_train <- subset(train, rownames(train) %notin% o[,i])
+    d <- enforce_make_consistency(tr=cleaner_train, print_removals = F)
+    cleaner_train <- d[[1]]
+    cleaner_test <- d[[2]]
+    rm(d)
+    
+    m <-  lm(formula = price ~ make + age + mileage + engine.size, data = cleaner_train)
+    evaluations <- evaluate(m, evaluation_data = cleaner_test)
+    missing_vars <- o[,i]
+    if(evaluations$mean_sq < best_result$mean_sq){
+      # best_result <- evaluations
+      print("*")
+      best.leave.one.out[length(best.leave.one.out)+1] <- list(append(evaluations, list(vars=missing_vars)))
+    }
+  }
+}
 
 ```
 
-### NN
+### nnet non-linear investigation (crude!)
+
 ```{r}
-library(neuralnet)
-nn<-neuralnet(price~make+mileage+age+owners+engine.size, data=na.omit(adapted_train), hidden=3, act.fct = "tanh", linear.output = T, rep=50, lifesign="minimal" )
-evaluate(nn, na.omit(adapted_test), type="")
-confusion_plot(nn, na.omit(adapted_train))
+d <- na.omit(train)
+nnet(price~., data=d, size=15, decay=0.1)
+x <- nnet(price~., data=d, size=15, decay=0.1)
+x <- nnet(price~., data=d, size=2, decay=0.1)
+e <- scale(d)
+d <- my.scale(d, "mileage")
+d <- my.scale(d, "engine.size")
+d <- my.scale(d, "age")
+View(d)
+View(d)
+d <- my.scale(d, "owners")
+y <- nnet(price~., data=d, size=2, decay=1e-3)
+y <- nnet(price~., data=d, size=100, decay=1e-3)
+y <- nnet(price~., data=d, size=15, decay=1e-3)
+
 ```
+
 
 
 ### Investigating PCA

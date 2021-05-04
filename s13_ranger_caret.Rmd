@@ -1,0 +1,598 @@
+# ---
+title: "caret ranger"
+author: "AL"
+date: "25/03/2021"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    toc_float: true
+editor_options:
+  chunk_output_type: console
+---
+
+## Summary  
+
+https://topepo.github.io/caret/  
+
+https://topepo.github.io/caret/available-models.html  
+
+http://zevross.com/blog/2017/09/19/predictive-modeling-and-machine-learning-in-r-with-the-caret-package/  
+
+https://uc-r.github.io/random_forests  
+
+<style>
+pre{
+  overflow-x: auto;
+}
+pre code{
+  word-wrap: normal;
+  white-space: pre;
+}
+</style>
+
+```{r echo=F}
+#options(width=999)
+```
+
+## Start section  
+
+```{r}
+
+Sys.time()
+rm(list=ls())
+graphics.off()
+gc()
+setwd("~/projects/car_data_analysis")
+
+# Load libraries
+
+library(caret)
+library(doMC)
+library(corrplot)
+library(dplyr)
+library(ranger)
+
+# Reproducibility (it may be complicated in caret !)
+#set.seed(42)
+
+```
+
+## Prepare data
+
+### Load raw data
+
+```{r}
+
+data_file="all_ads_structured_v2.csv"
+data.df <- read.csv(data_file, stringsAsFactors = T)
+dim(data.df)
+
+# Clean-up
+rm(data_file)
+
+```
+
+### Remove duplictes
+
+```{r}
+data.df <- data.df[,c("make", "mileage", "engine.size", "owners", "price", "manufactured.year")]
+
+data.df <- unique(data.df)
+
+dim(data.df)
+```
+
+### Remove records with missed data
+
+Could imputation be used for Random Forest?  
+
+```{r}
+
+# Count missed data per field
+count.na.udf <- function(x)(sum(is.na(x)))
+
+count_na <- apply(data.df,2,count.na.udf)
+count_na
+count_na/nrow(data.df)
+
+# Remove missed data
+data.df <- na.omit(data.df)
+dim(data.df)
+str(data.df)
+
+# Clean-up
+rm(count.na.udf, count_na)
+
+```
+
+### Exclude rare makes
+
+ad-hoc processing - based on previous exploration  
+
+Excluding rare values is a difficult question:  
+
+- on one hand, we have little data about them, so it may not be prudent to include them to the model  
+- on the other hand, for numeric parameters (e.g. the oldest age, the highest price) the extreme values could be the rare ones and, sometime, an influential predictor / the most interesting response    
+
+```{r}
+
+make_counts <- sort(summary(data.df$make),decreasing = T)
+make_counts
+
+barplot(make_counts,las=2)
+abline(h=25, col="red", lty=2)
+
+rare_makes <- names(make_counts[make_counts<25])
+rare_makes
+
+str(data.df)
+data.df <- data.df[!as.vector(data.df$make) %in% rare_makes,]
+data.df$make <- droplevels(data.df$make)
+str(data.df)
+
+rm(rare_makes, make_counts)
+
+```
+
+
+### Transformation(s)
+
+Use age instead of manufacture year
+
+Other things, like PC-s or log-transformations, could also be calculated at this (?) stage  
+
+```{r}
+
+data.df <- data.df %>% 
+  mutate(age=2021-manufactured.year) %>% 
+  select(-manufactured.year)
+
+str(data.df)
+
+```
+
+## Split to training and test sets
+
+Use caret function **createDataPartition** 
+
+```{r}
+
+trainIndex <- createDataPartition(data.df$price, times=1, p=0.7, list=F)
+
+trainIndex[1:5]
+length(trainIndex)
+
+train.df <- data.df[trainIndex,]
+test.df <- data.df[-trainIndex,]
+
+training_flag <- as.factor(1:nrow(data.df) %in% trainIndex) # for plots
+
+rm(trainIndex)
+
+```
+
+## Explore split data
+
+### Response distribution
+
+```{r}
+
+quantile(train.df$price)
+quantile(test.df$price)
+
+ggplot(data.df) + 
+  aes(price, fill=training_flag) +
+  geom_density(colour="black", alpha=0.3) +
+  ggtitle("Price")
+
+```
+
+### Predictors distribution
+
+#### mileage
+
+```{r}
+
+quantile(train.df$mileage)
+quantile(test.df$mileage)
+
+ggplot(data.df) + 
+  aes(mileage, fill=training_flag) +
+  geom_density(colour="black", alpha=0.3) +
+  geom_vline(xintercept=250e3, linetype="dashed", color = "red") +
+  labs(title = "Mileage",
+       subtitle = "Should high mileage be removed from data ??")
+
+```
+
+#### engine.size
+
+```{r}
+
+quantile(train.df$engine.size)
+quantile(test.df$engine.size)
+
+ggplot(data.df) + 
+  aes(engine.size, fill=training_flag) +
+  geom_density(colour="black", alpha=0.3) +
+  ggtitle("Engine size")
+
+```
+
+#### Age
+
+```{r}
+
+quantile(train.df$age)
+quantile(test.df$age)
+
+ggplot(data.df) + 
+  aes(age, fill=training_flag) +
+  geom_density(colour="black", alpha=0.3) +
+  ggtitle("Age")
+
+```
+
+#### Owners
+
+```{r}
+
+table(data.df$owners,training_flag)
+
+ggplot(data.df) + 
+  aes(owners, fill=training_flag) +
+  geom_density(colour="black", alpha=0.3) +
+  ggtitle("Owners")
+
+ggplot(data.df) + 
+  aes(owners, fill=training_flag) +
+  geom_histogram(colour="black", alpha=0.2, binwidth = 1) +
+  labs(title = "Owners",
+       subtitle = "stacked histogram",
+       caption = "Processed data")
+
+ggplot(data.df) + 
+  aes(owners, fill=training_flag) +
+  geom_histogram(colour="black", alpha=0.2, binwidth = 1, position="identity") +
+  labs(title = "Owners",
+       subtitle = "overlaid histogram",
+       caption = "Processed data")
+
+
+```
+
+#### Make
+
+```{r}
+
+x <- table(data.df$make,training_flag)
+x
+
+y <- x[order(rowSums(x), decreasing=T),]
+y
+
+barplot(t(y), main="Make (pre-porcessed & split data)", las=2)
+
+y[y[,1] < 10,]
+
+# Clean-up
+rm(x,y,training_flag)
+
+```
+
+### Checks not used for this model
+
+#### Predictors variability in training data
+
+```{r}
+
+numeric_predictors <- c("mileage","engine.size","owners","age")
+
+nearZeroVar(train.df[,numeric_predictors], saveMetrics = T)
+
+```
+
+```{r}
+
+x <- data.frame(train.df,bad_predictor=1)
+str(x)
+
+numeric_predictors <- c("mileage","engine.size","owners","age","bad_predictor")
+nearZeroVar(x[,numeric_predictors], saveMetrics = T)
+
+numeric_predictors <- c("mileage","engine.size","owners","age")
+rm(x)
+
+```
+
+#### Scales of numeric predictors
+
+Centering and scaling may be important for some models, but not for Random Forest
+
+Equivalent for categorical predictors ?? 
+
+```{r}
+# transparentTheme(trans = .2)
+
+featurePlot(x = train.df[,numeric_predictors],
+            y = train.df$price,
+            plot = "scatter",
+            layout = c(2,2))
+
+featurePlot(x = train.df[,numeric_predictors],
+            y = train.df$price,
+            plot = "pairs")
+
+# To do: Add regression lines
+
+```
+
+#### Correlation of numeric predictors 
+
+Technical: use **findCorrelation** from **caret**
+
+Conceptual:  
+
+- How is it important for Random Forest ?  
+- What about categorical predictors (chi sq for contingency table) ?   
+
+```{r}
+
+# Calculate correlations
+corMat <- cor(train.df[,numeric_predictors])
+corMat
+
+# Plot (is it better than heatmap?)
+corrplot(corMat, order="hclust", tl.cex=1)
+
+# Look at hightly correlated predictors
+highCorr <- findCorrelation(corMat, cutoff=0.75)
+length(highCorr)
+#names(train.df[,numeric_predictors])[highCorr]
+
+# Clean-up
+rm(corMat,highCorr,numeric_predictors)
+
+```
+
+## Set parallel processing
+
+Obviously, the cross-validation is naturally parallelisable.  
+
+**caret** is an example of the new generation of R packages that may recognize and use multiple cores (using help from **doMC** package).  
+
+```{r}
+
+registerDoMC(detectCores())
+getDoParWorkers()
+
+```
+
+## Build model(s)
+
+### Configure resampling
+
+the small number of CV partitions is on purpose: to avoid issues with lack of data in branches/leaves during cross-validation
+
+```{r}
+
+# Faster, less robust (less prone to over-fitting ??)
+train_ctrl_1 <- trainControl(method="cv",
+                           number = 5)
+
+# Slower, more robust (more prone to over-fitting ??)
+train_ctrl_2 <- trainControl(method="repeatedcv",
+                           number = 5,
+                           repeats = 10)
+
+```
+
+### Default model
+
+Use default grid of hyper-parameters set for **ranger** by **caret**
+
+The **importance** of varianbles could be evaluated by **Gini** or **Permutation**:  
+
+https://alexisperrier.com/datascience/2015/08/27/feature-importance-random-forests-gini-accuracy.html  
+
+```{r}
+
+# Train
+x <- Sys.time()
+rangerFit1 <- train(price ~ ., 
+                    data = train.df, 
+                    method = "ranger", 
+                    trControl = train_ctrl_1, 
+                    importance = "permutation",
+                    verbose = FALSE)
+Sys.time() - x
+
+# Check result
+rangerFit1
+rangerFit1$finalModel
+plot(varImp(rangerFit1),
+     main="Feature importance\nranger in caret with default hyper-parameters grid")
+
+# Clean-up
+rm(x )
+
+```
+
+### Model with custom grid
+
+Use **expand.grid** function from **base**  
+
+Making a custom grid of hyper-parameters requires some knowledge of them ...  
+
+```{r, eval=FALSE}
+
+# Getting know the hyper-parameters 
+# https://topepo.github.io/caret/available-models.html -> ranger  
+# getModelInfo("ranger")  
+# mtry = 1:5 # number of predictors to pick at random ???  
+# min.node.size: 1:20 # Self-explanatory  
+# if (is.factor(y)): c("gini", "extratrees")  
+# else: c("variance", "extratrees", "maxstat")  
+# str(data.df)  
+
+# Make the custom grid of hyper-parameters  
+rangerGrid <-  expand.grid(
+  mtry = seq(1,18,2),
+  splitrule = c("variance", "extratrees", "maxstat"), 
+  min.node.size = seq(5,15,2))
+
+nrow(rangerGrid)
+head(rangerGrid)
+tail(rangerGrid)
+
+# Train with the custom grid of hyper-parameters
+x <- Sys.time()
+rangerFit2 <- train(price ~ ., 
+                    data = train.df, 
+                    method = "ranger", 
+                    trControl = train_ctrl_2, 
+                    tuneGrid = rangerGrid,
+                    importance = "permutation",
+                    verbose = FALSE)
+Sys.time() - x
+
+# Check results
+rangerFit2
+rangerFit2$finalModel
+plot(varImp(rangerFit1),
+          main="Feature importance\nranger in caret with custom hyper-parameters grid")
+
+# De-clutter
+rm(x,train_ctrl_1,train_ctrl_2)
+
+```
+
+## Evaluate models on the test set  
+
+### Caret's default hyper-parameters grid  
+
+```{r, eval=FALSE}
+
+test_pred_rangerFit1 <- predict(rangerFit1, test.df)
+
+RMSE_test_rangerFit1 <- RMSE(test_pred_rangerFit1, test.df$price)
+Rsq_test_rangerFit1 <- cor(test_pred_rangerFit1, test.df$price)^2
+
+RMSE_test_rangerFit1
+Rsq_test_rangerFit1
+
+plot(test.df$price, test_pred_rangerFit1, 
+     main="Performance of ranger in caret model on test set\ndefault hyper-parameters grid")
+
+abline(0,1,lwd=3, col="red")
+abline(lm(test_pred_rangerFit1~test.df$price), lty=2, col="red")
+
+legend("topleft", 
+       legend=c("lm fitted to ranger prediction","diagonal"), 
+       lwd=c(1,3),lty=c(2,1),
+       col="red",bty="n")
+
+legend_text <- paste(
+  "R sq: ",round(Rsq_test_rangerFit1,2),"\n",
+  "RMSE: ",round(RMSE_test_rangerFit1,0),sep="")
+legend("bottomright", legend=legend_text, bty="n")
+
+
+# Clean-up
+rm(legend_text,Rsq_test_rangerFit1,RMSE_test_rangerFit1,test_pred_rangerFit1)
+
+```
+
+### Custom hyper-parameters grid 
+
+```{r, eval=FALSE}
+
+test_pred_rangerFit2 <- predict(rangerFit2, test.df)
+
+RMSE_test_rangerFit2 <- RMSE(test_pred_rangerFit2, test.df$price)
+Rsq_test_rangerFit2 <- cor(test_pred_rangerFit2, test.df$price)^2
+
+RMSE_test_rangerFit2
+Rsq_test_rangerFit2
+
+plot(test.df$price, test_pred_rangerFit2, 
+     main="Performance of ranger in caret model on test set\ncustom hyper-parameters grid")
+
+abline(0,1,lwd=3, col="red")
+abline(lm(test_pred_rangerFit2~test.df$price), lty=2, col="red")
+
+legend("topleft", 
+       legend=c("lm fitted to ranger prediction","diagonal"), 
+       lwd=c(1,3),lty=c(2,1),
+       col="red",bty="n")
+
+legend_text <- paste(
+  "R sq: ",round(Rsq_test_rangerFit2,2),"\n",
+  "RMSE: ",round(RMSE_test_rangerFit2,0),sep="")
+legend("bottomright", legend=legend_text, bty="n")
+
+
+# Clean-up
+rm(legend_text,Rsq_test_rangerFit2,RMSE_test_rangerFit2,test_pred_rangerFit2)
+
+```
+
+## Manual selection of the best model  
+
+We use the **finalModel** suggested by **caret**, but there is a way of selecting it manually using different criteria ...  
+
+?tolerance - is it sorted from the least to the most complex model ?
+
+#### Caret's default hyper-parameter grid  
+
+```{r}
+
+RMSE_tol2pct_rangerFit1 <- tolerance(rangerFit1$results, metric = "RMSE", 
+                                     tol = 2, maximize = TRUE)  
+
+rangerFit1$results[RMSE_tol2pct_rangerFit1,]
+
+Rsq_tol2pct_rangerFit1 <- tolerance(rangerFit1$results, metric = "Rsquared", 
+                                    tol = 2, maximize = TRUE)  
+
+rangerFit1$results[Rsq_tol2pct_rangerFit1,]
+
+# Clean-up
+rm(RMSE_tol2pct_rangerFit1,Rsq_tol2pct_rangerFit1)
+
+```
+
+#### Custom hyper-parameter grid
+
+```{r, eval=FALSE}
+
+rangerFit2$results
+
+RMSE_tol2pct_rangerFit2 <- tolerance(rangerFit2$results, metric = "RMSE", 
+                                     tol = 2, maximize = TRUE)  
+
+rangerFit2$results[ RMSE_tol2pct_rangerFit2,]
+
+Rsq_tol2pct_rangerFit2 <- tolerance(rangerFit2$results, metric = "Rsquared", 
+                                    tol = 2, maximize = TRUE)  
+
+rangerFit2$results[Rsq_tol2pct_rangerFit2,]
+
+# Clean-up
+rm(RMSE_tol2pct_rangerFit2,Rsq_tol2pct_rangerFit2)
+
+```
+
+## Final section
+
+```{r}
+
+ls()
+sessionInfo()
+Sys.time()
+gc()
+save.image('working_forest.RData')
+getwd()
+```
+
