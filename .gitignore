@@ -10,3 +10,5 @@ logs
 *.Rhistory
 *.RData
 *.txt
+
+lockfile
