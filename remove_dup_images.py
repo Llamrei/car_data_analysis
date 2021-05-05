@@ -13,10 +13,13 @@ image_names = [x.stem for x in image_names]
 assert len(image_names) == len(set(image_names))
 image_names = set(image_names)
 
-images_to_remove = image_names - valid_ids
-images_to_remove = [image_dir/f"{stem}.jpeg" for stem in images_to_remove]
+if image_names == valid_ids:
+    print("All good")
+else:
+    images_to_remove = image_names - valid_ids
+    images_to_remove = [image_dir/f"{stem}.jpeg" for stem in images_to_remove]
 
-for file in images_to_remove:
-    os.rename(file, file.parents[1]/f"dup_images/{file.name}")
+    for file in images_to_remove:
+        os.rename(file, file.parents[1]/f"dup_images/{file.name}")
 
-print(f"Removed {len(images_to_remove)} images")
+    print(f"Removed {len(images_to_remove)} images")
