@@ -1,18 +1,18 @@
 #!/bin/bash
 # Debug queue:
 # PBS -l select=1:ncpus=8:mem=24gb:ompthreads=8
-# PBS -l walltime=00:15:00
+# PBS -l walltime=00:29:59
 # PBS -J 1-16
 
 # Throughput queue:
-#PBS -l select=1:ncpus=8:mem=24gb:ompthreads=8
-#PBS -l walltime=02:00:0
-#PBS -J 1-16
-
-# GPU queue: TODO: look into why this randomly breaks with the io device stuff -> was to do with cluster write permissions
-# PBS -lselect=1:ncpus=4:mem=24gb:ngpus=1:gpu_type=RTX6000
-# PBS -l walltime=00:30:0
+# PBS -l select=1:ncpus=8:mem=24gb:ompthreads=8
+# PBS -l walltime=02:00:0
 # PBS -J 1-16
+
+# GPU queue:
+#PBS -lselect=1:ncpus=4:mem=24gb:ngpus=1:gpu_type=RTX6000
+#PBS -l walltime=10:00:0
+#PBS -J 1-16
 
 inter_threads=4
 intra_threads=4
@@ -23,15 +23,15 @@ set -x
 job="${PBS_JOBID%[*}"
 
 # Debug single:
-# exp_vals=(mse-bert-shallow_wide-no)
+# exp_vals=(mse-tfidf-deep_narrow-l2)
 # Debug array:
 # exp_vals=(mse-tfidf-shallow_wide-{'l1','l2','do'})
 # Quick CPU permute:
 # exp_vals=(mse-tfidf-{'core','shallow_wide','deep_narrow','deep_wide'}-{'l1','l2','do','no'})
 # Medium CPU permute:
-exp_vals=(mse-learned-{'core','shallow_wide','deep_narrow','deep_wide'}-{'l1','l2','do','no'})
+# exp_vals=(mse-learned-{'core','shallow_wide','deep_narrow','deep_wide'}-{'l1','l2','do','no'})
 # Long GPU permute:
-# exp_vals=(mse-bert-{'core','shallow_wide','deep_narrow','deep_wide'}-{'l1','l2','do','no'})
+exp_vals=(mse-bert-{'core','shallow_wide','deep_narrow','deep_wide'}-{'l1','l2','do','no'})
 
 echo "Array idx $PBS_ARRAY_INDEX"
 if [[ ! -z "$PBS_ARRAY_INDEX" ]]; then
@@ -54,9 +54,9 @@ else
     echo "Not in array job, exp val $exp_val"
 fi
 
-input_data_path="$HOME/RNN_for_movie_gross_prediction/complete10000_films_and_synopsis.pickle"
-script_dir="$HOME/RNN_for_movie_gross_prediction/jobs/mini_project_exps/"
-output_dir="$EPHEMERAL/mini_project_exps/$PBS_JOBNAME/$save_dir"
+input_data_path="$HOME/car_data_analysis/deduped_car_data.pickle"
+script_dir="$HOME/car_data_analysis/repeat_mini_proj_1/"
+output_dir="$EPHEMERAL/repeat_mini_proj_1/$PBS_JOBNAME/$save_dir"
 
 mkdir -p $output_dir
 # Just so we can remember which job made this

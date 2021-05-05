@@ -133,7 +133,7 @@ def split_data_into_input_and_output(data):
     return np.array(data_in), np.array(data_out)
 
 
-def clean_copy(data, min_length=10, max_length=50, min_earning=0,max_earning=np.exp(30)):
+def clean_copy(data, min_length=10, max_length=250, min_earning=0,max_earning=np.exp(30)):
     cleaned_data = np.fromiter(
         (x for x in data if len(x[INPUT_KEY].split()) > min_length), dtype=data.dtype
     )
@@ -199,9 +199,6 @@ def data_split(data, valid_fraction, test_fraction, train_fraction=None):
     len_d = len(data)
     test_idx = int(len_d*test_fraction)
     valid_idx = test_idx + int(len_d*valid_fraction)
-    # Just checking method is consistent
-    train_idx = valid_idx + int(len_d*train_fraction)
-    assert train_idx == len_d
     return (data[:test_idx], data[test_idx:valid_idx], data[valid_idx:])
 
 
@@ -242,7 +239,7 @@ def build_encoding(encoding_strat, text_input):
         net = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(10,name='LSTM'),name='Bidirectional')(net)
         return net
     elif encoding_strat == 'bert':
-        load_options = tf.saved_model.LoadOptions(experimental_io_device='/job:localhsost')
+        load_options = tf.saved_model.LoadOptions(experimental_io_device='/job:localhost')
         preprocessor = hub.load("https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3", options=load_options)
         print("\n\n\nHub resolve:")
         print(hub.resolve("https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3"))
@@ -255,7 +252,7 @@ def build_encoding(encoding_strat, text_input):
         # Step 2 (optional): modify tokenized inputs.
 
         # Step 3: pack input sequences for the Transformer encoder.
-        seq_length = 50  # We filter out anything more earlier
+        seq_length = 250  # We filter out anything more earlier
         bert_pack_inputs = hub.KerasLayer(
             preprocessor.bert_pack_inputs,
             arguments=dict(seq_length=seq_length), name='input_packer')  # Optional argument.
@@ -358,7 +355,7 @@ cp_callback = tf.keras.callbacks.ModelCheckpoint(
     save_freq=2*TRAIN_STEPS_PER_EPOCH,
 )
 csv_logger = tf.keras.callbacks.CSVLogger(OUTPUT_DIR / 'training.csv',append=True)
-early_stopping = tf.keras.callbacks.EarlyStopping(patience=100, mode='min', restore_best_weights=False, verbose=1)
+early_stopping = tf.keras.callbacks.EarlyStopping(patience=30, mode='min', restore_best_weights=False, verbose=1)
 
 # class LearningRateLoggingCallback(tf.keras.callbacks.Callback):
 
@@ -398,13 +395,15 @@ pred_test = pre_trained_model.predict(test_data_in)
 trained_mean = np.mean(train_data_out)
 trained_median = np.median(train_data_out)
 
+XMAX = max(max(pred_train), max(pred_test), max(train_data_out), max(test_data_out))
+
 fig = plt.figure(figsize=(11, 8), dpi=300)
 ax = fig.subplots()
 ax.set_title(EXP_STR)
 confusion_plot(train_data_out, pred_train, f"train", ax)
 confusion_plot(test_data_out, pred_test, f"test", ax)
-ax.hlines(y=trained_mean, xmin=0.0, xmax=9e8, color='grey', linestyles='dashed')
-ax.hlines(y=trained_median, xmin=0.0, xmax=9e8, color='grey', linestyles='dotted')
+ax.hlines(y=trained_mean, xmin=0.0, xmax=XMAX, color='grey', linestyles='dashed')
+ax.hlines(y=trained_median, xmin=0.0, xmax=XMAX, color='grey', linestyles='dotted')
 fig.savefig(OUTPUT_DIR / "pretrained_confusion.png")
 
 plot_graphs(pre_trained_history, "loss")
@@ -422,8 +421,8 @@ ax = fig.subplots()
 ax.set_title(EXP_STR)
 confusion_plot(train_data_out, pred_train, f"train", ax)
 confusion_plot(test_data_out, pred_test, f"test", ax)
-ax.hlines(y=trained_mean, xmin=0.0, xmax=9e8, color='grey', linestyles='dashed')
-ax.hlines(y=trained_median, xmin=0.0, xmax=9e8, color='grey', linestyles='dotted')
+ax.hlines(y=trained_mean, xmin=0.0, xmax=XMAX, color='grey', linestyles='dashed')
+ax.hlines(y=trained_median, xmin=0.0, xmax=XMAX, color='grey', linestyles='dotted')
 fig.savefig(OUTPUT_DIR / "best-pretrained_confusion.png")
 
 
