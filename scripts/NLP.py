@@ -9,6 +9,14 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.layers import Input, Dense
 
+tf.config.threading.set_intra_op_parallelism_threads(
+    7
+)
+tf.config.threading.set_inter_op_parallelism_threads(
+    7
+)
+
+
 job_id = sys.argv[1]
 array_idx = sys.argv[2]
 data_file = Path(sys.argv[3]) / "deduped_data.csv"
@@ -65,7 +73,8 @@ history = model.fit(train["desc"].values,
                     epochs=100,
                     batch_size=BATCH_SIZE,
                     validation_data=(test["desc"].values, test["price"].values),
-                    callbacks=[early_stopping, csv_logger]
+                    callbacks=[early_stopping, csv_logger],
+                    verbose=2,
                    )
 end = datetime.datetime.now()
 

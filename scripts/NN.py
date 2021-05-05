@@ -91,7 +91,8 @@ history = model.fit([train_makes, train_input],
                     epochs=100,
                     batch_size=BATCH_SIZE,
                     validation_data=([test_makes, test_input], test_prices),
-                    callbacks=[early_stopping]
+                    callbacks=[early_stopping],
+                    verbose=2,
                    )
 end = datetime.datetime.now()
 

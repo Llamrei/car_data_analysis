@@ -29,7 +29,7 @@ data.df$test <- test_flag
 str(data.df)
 str(train.df)
 
-registerDoMC(detectCores() - 2)
+registerDoMC(8)
 getDoParWorkers()
 
 train_ctrl_1 <- trainControl(method="cv",

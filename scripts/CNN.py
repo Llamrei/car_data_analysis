@@ -9,6 +9,13 @@ import tensorflow as tf
 from tensorflow import keras as K
 import tensorflow_datasets as tfds
 
+tf.config.threading.set_intra_op_parallelism_threads(
+    7
+)
+tf.config.threading.set_inter_op_parallelism_threads(
+    7
+)
+
 job_id = sys.argv[1]
 array_idx = sys.argv[2]
 data_dir = Path(sys.argv[3])
@@ -95,7 +102,8 @@ start = datetime.datetime.now()
 history = model.fit(train_ds, 
                     epochs=30,
                     validation_data=test_ds,
-                    callbacks=[early_stopping, csv_logger]
+                    callbacks=[early_stopping, csv_logger],
+                    verbose=2,
                    )
 end = datetime.datetime.now()
 
