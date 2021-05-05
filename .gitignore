@@ -1,6 +1,7 @@
 venv
 .ipynb_checkpoints
 logs
+results
 
 *.csv
 *.jpeg
