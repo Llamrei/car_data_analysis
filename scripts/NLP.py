@@ -25,7 +25,26 @@ save_dir = sys.argv[4]
 data = pd.read_csv(data_file)
 data = data[["id","desc","price"]]
 
-train, test = train_test_split(data, test_size=0.3)
+# TODO: Make this a proper option - for now comment/uncomment
+# # For generating indices 
+# indices_dir = data_file.parent.parent / "ensemble_indices"
+# for i in range(30):
+#     train, test = train_test_split(data, test_size=0.3)
+#     train["id"].to_csv(indices_dir / f"train_{i}.csv", index=False)
+#     test["id"].to_csv(indices_dir / f"test_{i}.csv", index=False)
+
+# # For individiual runs we want to regenerate
+# train, test = train_test_split(data, test_size=0.3)
+# # For ensemble trainings we want to make sure everything uses same data
+file_idx = int(array_idx) // 6
+print(f"Loading indices from {file_idx}")
+indices_dir = data_file.parent.parent / "ensemble_indices"
+train_ids = pd.read_csv(indices_dir/ f"train_{file_idx}.csv")
+test_ids = pd.read_csv(indices_dir/ f"test_{file_idx}.csv")
+assert len(pd.merge(train_ids, test_ids, on="id")) == 0
+train = pd.merge(train_ids, data, on="id", validate="one_to_one")
+test = pd.merge(test_ids, data, on="id", validate="one_to_one")
+
 train["test"] = 0
 test["test"] = 1
 

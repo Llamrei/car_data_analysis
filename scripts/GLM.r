@@ -6,6 +6,15 @@ save_dir <- args[4]
 
 data_file <- file.path(data_dir, "deduped_data.csv")
 
+# Should be proper feature - comment/uncomment for now
+# # Ensembling needs consistent train
+file_idx <- as.integer(array_idx) %/% 6
+paste("loading from", file_idx)
+train_ids <- file.path(data_dir, "../ensemble_indices", paste("train_", file_idx, ".csv", sep=""))
+test_ids <- file.path(data_dir, "../ensemble_indices", paste("test_", file_idx, ".csv", sep=""))
+train_ids <- read.csv(train_ids)
+test_ids <- read.csv(test_ids)
+
 # Load libraries
 
 library(caret)
@@ -20,11 +29,15 @@ data.df$make <- as.factor(data.df$make)
 
 str(data.df)
 
-testIndex <- createDataPartition(data.df$price, times=1, p=0.3, list=F)
-train.df <- data.df[-testIndex,] %>% select(-id) %>% select(-desc)
-test.df <- data.df[testIndex,]
-test_flag <- as.integer(1:nrow(data.df) %in% testIndex)
-data.df$test <- test_flag
+# testIndex <- createDataPartition(data.df$price, times=1, p=0.3, list=F)
+# train.df <- data.df[-testIndex,] %>% select(-id) %>% select(-desc)
+# test.df <- data.df[testIndex,]
+# test_flag <- as.integer(1:nrow(data.df) %in% testIndex)
+train.df <- merge(data.df, train_ids, by="id")
+test.df <- merge(data.df, test_ids, by="id")
+train.df$test <- 0
+test.df$test <- 1
+data.df <- rbind(train.df, test.df)
 
 str(data.df)
 str(train.df)
