@@ -2,6 +2,7 @@ venv
 .ipynb_checkpoints
 logs
 results
+.vscode
 
 *.csv
 *.jpeg
