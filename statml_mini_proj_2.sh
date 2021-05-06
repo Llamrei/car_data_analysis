@@ -2,14 +2,14 @@
 #PBS -o /rds/general/user/al3615/home/car_data_analysis/pbs_junk
 #PBS -e /rds/general/user/al3615/home/car_data_analysis/pbs_junk
 # Debug queue:
-#PBS -l select=1:ncpus=8:mem=32gb:ompthreads=8
-#PBS -l walltime=00:29:59
-#PBS -J 1-6
+# PBS -l select=1:ncpus=8:mem=32gb:ompthreads=8
+# PBS -l walltime=00:29:59
+# PBS -J 1-6
 
 # Throughput queue:
-# PBS -l select=1:ncpus=8:mem=24gb:ompthreads=8
-# PBS -l walltime=23:00:0
-# PBS -J 1-180
+#PBS -l select=1:ncpus=8:mem=24gb:ompthreads=8
+#PBS -l walltime=23:00:0
+#PBS -J 1-180
 
 # GPU queue:
 # PBS -lselect=1:ncpus=4:mem=24gb:ngpus=1:gpu_type=RTX6000
@@ -30,7 +30,7 @@ exp_vals=($(ls -d $working_dir/scripts/*))
 echo "Array idx $PBS_ARRAY_INDEX"
 if [[ ! -z "$PBS_ARRAY_INDEX" ]]; then
     no_exps="${#exp_vals[@]}"
-    # Why the -1?!?!
+    # Array jobs are indexed from 1
     array_idx=$(($PBS_ARRAY_INDEX - 1))
 
     # For repeating experiments we want to cycle through our experiment values
@@ -74,7 +74,7 @@ $script_handler $exp_val $job $array_idx $input_data_dir $output_dir
 # Update counter in progress file for how many tests we have
 # use flock for atomic transaction
 ( flock -x 200;
-$(expr $(cat "$progress_file") + 1) > $progress_file;
+echo $(expr $(cat "$progress_file") + 1) > $progress_file;
 ) 200>/rds/general/user/al3615/home/car_data_analysis/lockfile 
 
 echo "Done"

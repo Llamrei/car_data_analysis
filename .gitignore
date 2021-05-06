@@ -3,6 +3,7 @@ venv
 logs
 results
 .vscode
+pbs_junk
 
 *.csv
 *.jpeg
