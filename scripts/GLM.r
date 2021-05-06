@@ -33,7 +33,7 @@ str(data.df)
 # train.df <- data.df[-testIndex,] %>% select(-id) %>% select(-desc)
 # test.df <- data.df[testIndex,]
 # test_flag <- as.integer(1:nrow(data.df) %in% testIndex)
-train.df <- merge(data.df, train_ids, by="id")
+train.df <- merge(data.df, train_ids, by="id") %>% select(-id) %>% select(-desc)
 test.df <- merge(data.df, test_ids, by="id")
 train.df$test <- 0
 test.df$test <- 1
