@@ -52,15 +52,17 @@ data = pd.concat((train, test))
 
 def lower_strip_punc_and_no_nums(inputs):
     lowercase_inputs = tf.strings.lower(inputs)
-    DEFAULT_STRIP_REGEX = r'[!"#$%&()\*\+,-\./:;<=>?@\[\\\]^_`{|}~\']'
+    DEFAULT_STRIP_REGEX = r'[!"#$£%&()\*\+,-\./:;<=>?@\[\\\]^_`{|}~\']'
     inputs = tf.strings.regex_replace(lowercase_inputs, DEFAULT_STRIP_REGEX, "")
-    inputs = tf.strings.regex_replace(inputs, r"[0-9]", "")
+    inputs = tf.strings.regex_replace(inputs, r"[0-9]*", "")
     return inputs
 
 VOCAB_SIZE = 5000
 
 text_input = Input(shape=(), dtype=tf.string, name='text')
-encoder = tf.keras.layers.experimental.preprocessing.TextVectorization(output_mode='tf-idf', max_tokens=5000)
+encoder = tf.keras.layers.experimental.preprocessing.TextVectorization(output_mode='tf-idf', 
+            standardize=lower_strip_punc_and_no_nums, 
+            max_tokens=5000)
 encoder.adapt(train["desc"].values)
 net = encoder(text_input)
 net = Dense(64, activation="relu")(net)
