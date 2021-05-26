@@ -56,7 +56,7 @@ exp_identifier=$(($array_idx / 6))
 
 input_data_dir="$working_dir/final_project_data"
 output_dir="$working_dir/results/ensemble/$exp_identifier"
-progress_file="$output_dir/$progress_file"
+progress_file="$output_dir/../$progress_file"
 
 mkdir -p $output_dir
 
