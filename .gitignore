@@ -9,9 +9,11 @@ pbs_junk
 *.jpeg
 *.pickle
 *.png
+*.svg
 *.html
 *.Rhistory
 *.RData
 *.txt
+*.tar.gz
 
 lockfile
