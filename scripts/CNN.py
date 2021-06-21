@@ -8,6 +8,9 @@ from sklearn.model_selection import train_test_split
 import tensorflow as tf
 from tensorflow import keras as K
 import tensorflow_datasets as tfds
+import tensorflow_hub as hub
+import tensorflow_addons as tfa
+
 
 tf.config.threading.set_intra_op_parallelism_threads(
     7
@@ -80,20 +83,10 @@ for x in data_ds.take(len(data)):
     assert x[1] == data["price"].iloc[i]
     i += 1
 data_ds = data_ds.map(retrieve_image_tensor).batch(1)
-
+module = hub.KerasLayer("https://tfhub.dev/google/bit/m-r50x1/1")
 model = K.Sequential([
     K.Input(shape=(HEIGHT,WIDTH,3)),
-    K.layers.Conv2D(16, (3,3), padding="SAME"),
-    K.layers.BatchNormalization(),
-    K.layers.Conv2D(16, (3,3), padding="SAME"),
-    K.layers.BatchNormalization(),
-    K.layers.MaxPool2D((2,2)),
-#     K.layers.Conv2D(16, (3,3), padding="valid"),
-#     K.layers.BatchNormalization(),
-#     K.layers.Conv2D(16, (3,3), padding="valid"),
-#     K.layers.BatchNormalization(),
-#     K.layers.MaxPool2D((2,2)),
-    K.layers.Flatten(),
+    module,
     K.layers.Dense(64, activation="relu"),
     K.layers.Dense(32, activation="relu"),
     K.layers.Dense(1)
@@ -116,12 +109,16 @@ save_dir = Path(save_dir)/ "CNN"
 save_dir.mkdir(parents=True, exist_ok=True)
 (save_dir / "training").mkdir(parents=True, exist_ok=True)
 csv_logger = tf.keras.callbacks.CSVLogger(save_dir / f'training/training_{job_id}_{array_idx}.csv', append=True)
+almost_day_stop = tfa.callbacks.TimeStopping(
+    seconds: int = 22*60*60, # 22hrs
+    verbose: int = 0
+)
 
 start = datetime.datetime.now()
 history = model.fit(train_ds, 
                     epochs=30,
                     validation_data=test_ds,
-                    callbacks=[early_stopping, csv_logger],
+                    callbacks=[early_stopping, csv_logger, almost_day_stop],
                     verbose=2,
                    )
 end = datetime.datetime.now()
