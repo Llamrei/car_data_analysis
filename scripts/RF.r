@@ -43,6 +43,7 @@ test.df$test <- 1
 data.df <- rbind(train.df, test.df)
 
 train.df <- train.df %>% select(-id) %>% select(-desc)
+train.df <- train.df %>% select(-test)
 
 str(data.df)
 str(train.df)
