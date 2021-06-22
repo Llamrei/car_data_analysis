@@ -110,8 +110,8 @@ save_dir.mkdir(parents=True, exist_ok=True)
 (save_dir / "training").mkdir(parents=True, exist_ok=True)
 csv_logger = tf.keras.callbacks.CSVLogger(save_dir / f'training/training_{job_id}_{array_idx}.csv', append=True)
 almost_day_stop = tfa.callbacks.TimeStopping(
-    seconds: int = 22*60*60, # 22hrs
-    verbose: int = 0
+    seconds = 22*60*60, # 22hrs
+    verbose = 0
 )
 
 start = datetime.datetime.now()
