@@ -85,7 +85,7 @@ for x in data_ds.take(len(data)):
     assert x[1] == data["price"].iloc[i]
     i += 1
 data_ds = data_ds.map(retrieve_image_tensor).batch(1)
-module = hub.KerasLayer("https://tfhub.dev/google/bit/m-r50x1/1")
+module = hub.KerasLayer("https://tfhub.dev/google/bit/m-r50x1/1", trainable=False)
 model = K.Sequential([
     K.Input(shape=(HEIGHT,WIDTH,3)),
     module,

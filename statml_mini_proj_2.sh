@@ -55,7 +55,7 @@ fi
 
 input_data_dir="$working_dir/final_project_data"
 output_dir="$working_dir/results"
-progress_file="$output_dir/$progress_file"
+progress_file="$output_dir/solo/$progress_file"
 
 mkdir -p $output_dir
 

@@ -8,8 +8,8 @@
 
 # Throughput queue:
 #PBS -l select=1:ncpus=8:mem=24gb:ompthreads=8
-#PBS -l walltime=23:59:0
-#PBS -J 1-600
+#PBS -l walltime=71:00:0
+#PBS -J 1-100
 
 # GPU queue:
 # PBS -lselect=1:ncpus=4:mem=24gb:ngpus=1:gpu_type=RTX6000
@@ -25,12 +25,12 @@ job="${job%[*}"
 working_dir=$HOME/car_data_analysis
 
 # exp_vals will give the name of the scripts to run with the correct models
-exp_vals=($(ls -d $working_dir/scripts/*))
+exp_vals=("/rds/general/user/al3615/home/car_data_analysis/scripts/fixed_CNN.py")
 
 echo "Array idx $PBS_ARRAY_INDEX"
 if [[ ! -z "$PBS_ARRAY_INDEX" ]]; then
     no_exps="${#exp_vals[@]}"
-    array_idx=$PBS_ARRAY_INDEX
+    array_idx=$(($PBS_ARRAY_INDEX * 6))
 
     # For repeating experiments we want to cycle through our experiment values
     exp_idx=$(($array_idx % $no_exps))
@@ -55,7 +55,7 @@ fi
 exp_identifier=$(($array_idx / 6))
 
 input_data_dir="$working_dir/final_project_data"
-output_dir="$working_dir/results/ensemble/$exp_identifier"
+output_dir="$working_dir/fixed_greyscale_results/ensemble/$exp_identifier"
 progress_file="$output_dir/../$progress_file"
 
 mkdir -p $output_dir
